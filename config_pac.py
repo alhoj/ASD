@@ -11,7 +11,7 @@ paths = {'cluster': '/autofs/cluster/transcend/jussi/',
          'fs': '/autofs/cluster/transcend/MRI/WMA/recons/'
          }
 
-## set variables
+## set parameters
 
 # exclude subjects
 exclude = ['105801', '107301', '052902', '090902', '048102', '075401', '096603']

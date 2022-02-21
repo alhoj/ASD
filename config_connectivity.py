@@ -13,7 +13,7 @@ paths = {'in': '/autofs/cluster/transcend/MEG/speech/',
          'cluster': '/autofs/cluster/transcend/jussi/'
          }
 
-## set variables
+## set parameters
 exclude = ['105801', '107301'] # exclude subjects
 
 conds = ['MSS', 'SWS'] # conditions to include
