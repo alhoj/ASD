@@ -7,17 +7,16 @@ Created on Fri Feb 12 10:05:49 2021
 """
 
 import sys
+if '/autofs/cluster/transcend/jussi/scripts/' not in sys.path:
+    sys.path.append('/autofs/cluster/transcend/jussi/scripts/')
+if '/autofs/cluster/transcend/jussi/tools/' not in sys.path:
+    sys.path.append('/autofs/cluster/transcend/jussi/tools/')
 import mne
 import numpy as np
 import pickle
 import os
 import scipy
-import random
-if '/autofs/cluster/transcend/jussi/scripts/' not in sys.path:
-    sys.path.append('/autofs/cluster/transcend/jussi/scripts/')
-if '/autofs/cluster/transcend/jussi/tools/' not in sys.path:
-    sys.path.append('/autofs/cluster/transcend/jussi/tools/')
-    
+import random    
 from helper_functions import DAR_MI, canolty_MI, ozkurt_MI, module_to_dict
 from pactools.utils.parallel import Parallel, delayed
 from pactools import multiple_band_pass
