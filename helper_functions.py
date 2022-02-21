@@ -145,3 +145,12 @@ def ozkurt_MI(sig_phase, sig_amp):
             MI[i_phase,i_amp] = np.abs(z_array.mean(1))
             MI[i_phase,i_amp] *= np.sqrt(amplitude.shape[1]) / norm
     return MI
+
+
+# convert (configuration) module into a dict
+def module_to_dict(module):
+    newdict = {}
+    for attr in dir(module):
+        if not attr.startswith('_'):
+            newdict[attr] = getattr(module, attr)
+    return newdict
