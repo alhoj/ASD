@@ -15,9 +15,24 @@ from pactools.dar_model.dar import DAR
 from pactools.utils.maths import next_power2
 import math
 
-# estimate pearson's correlation coefficient corresponding to 
-# given p-value and sample size 
-def r_from_p(p,n):
+
+def r_from_p(p, n):
+    """ 
+    Returns pearson's r corresponding to p-value (two-tailed) and sample size n.
+    
+    Parameters
+    ----------
+    p : float
+        P-value
+    n : int
+        Sample size
+        
+    Returns
+    -------
+    r : float
+        Pearson's correlation coefficient
+    """
+      
     rhos = np.arange(0,1,0.001)
     dist = scipy.stats.beta(n/2-1, n/2-1, loc=-1, scale=2)
     pvals = np.zeros(len(rhos))
@@ -26,17 +41,77 @@ def r_from_p(p,n):
     r = rhos[pvals==np.max(pvals[pvals < p])][0]
     return r
 
-# calculate p-value corresponding to pearson's correlation coefficient
-# and sample size 
-def p_from_r(r,n):
+
+def p_from_r(r, n):
+    """ 
+    Returns p-value (two-tailed) corresponding to pearson's r with sample size n.
+    
+    Parameters
+    ----------
+    r : float
+        Pearson's correlation coefficient
+    n : int
+        Sample size
+        
+    Returns
+    -------
+    p : float
+        P-value
+        
+    """
+    
     t = r*np.sqrt((n-2)/(1-r**2))
     p = scipy.stats.t.sf(np.abs(t), n-2)*2
     return p
 
-# estimate significance level (group mean) 
-# corresponding to given p-value  
-# using wilcoxon signed rank test 
+
+def t_from_p(p, n, tail='two'):
+    """ 
+    Returns t-statistic corresponding to p-value and sample size n.
+    
+    Parameters
+    ----------
+    p : float
+        P-value
+    n : int
+        Sample size
+    tail : 'one' | 'two'
+        One- of two-tailed test (default 'two')
+        
+    Returns
+    -------
+    t : float
+        T-statistic
+        
+    """
+    
+    if tail=='two':
+        p /= 2
+    t = abs(scipy.stats.distributions.t.ppf(p, n-1))
+    return t
+
+
+
 def get_signif_level(data, p=0.05, tail='greater'):
+    """     
+    Estimates one-sample significance level corresponding to p-value
+    using wilcoxon signed rank test.
+    
+    Parameters
+    ----------
+    data : array, shape (n_samples)
+        Group data
+    p : float
+        P-value (default 0.05)
+    tail : 'greater' | 'less' | 'two-sided'
+        The alternative hypothesis to be tested (default 'greater')
+        
+    Returns
+    -------
+    signif : float
+        Significance level
+        
+    """
     checkVals = np.arange(0,np.max(data),np.max(data)/1000)
     pvals = np.zeros(len(checkVals))
     for i,checkVal in enumerate(checkVals):
@@ -45,16 +120,56 @@ def get_signif_level(data, p=0.05, tail='greater'):
     return signif
 
 
-# calculate pooled standard deviation
-# a, b = samples
-def pooled_stdev(a, b):
-    stdev = np.sqrt(((len(a)-1) * np.var(a) + (len(b)-1) * np.var(b)) / (len(a)+len(b)-2))
+
+def pooled_stdev(s1, s2):
+    """ 
+    Calculate pooled standard deviation for sampless s1 and s2.
+    
+    Parameters
+    ----------
+    s1 : array, shape (n_samples)
+        First sample
+    s2 : array, shape (n_samples)
+        Second sample
+        
+    Returns
+    -------
+    stdev : float
+        Standard deviation
+        
+    """
+    
+    stdev = np.sqrt(((len(s1)-1) * np.var(s1) + (len(s2)-1) * 
+                     np.var(s2)) / (len(s1)+len(s2)-2))
     return stdev
 
-# correlation coefficients using Fisher's z-transformation
-# returns z-score and p-value for the difference between the correlations
-# if n2=None, do within-group test
+
+
 def compare_corr_coefs(r1, r2, n1, n2):
+    """ 
+    Compares correlation coefficients using Fisher's z-transformation.
+    Returns z-score and p-value for the difference between the correlations.
+    
+    Parameters
+    ----------
+    r1 : float
+        First correlation coefficient
+    r2 : float
+        Second correlation coefficient
+    n1 : int
+        First sample size
+    n2 : int | None
+        Second sample size. If n2 is None, assumes both r1 and r2 are 
+        from the first sample.
+        
+    Returns
+    -------
+    z : float
+        Z-score
+    p : float
+        P-value
+        
+    """
     # Fisher's z-transformation
     z1 = math.atanh(r1)
     z2 = math.atanh(r2)
@@ -70,9 +185,33 @@ def compare_corr_coefs(r1, r2, n1, n2):
     p = (1 - scipy.stats.norm.cdf(abs(z))) * 2
     return z, p
 
-# calculate phase-amplitude coupling (PAC) modulation index based on 
-# driven auto-regressive models (as in Dupre la Tour et al. 2017)
-def DAR_MI(sig_phase, sig_phase_imag, sig_amp, amp_fq_range, fs):    
+
+
+def DAR_MI(sig_phase, sig_phase_imag, sig_amp, amp_fq_range, fs):
+    """ 
+    Calculates phase-amplitude coupling (PAC) modulation index based on
+    driven auto-regressive models (as in Dupre la Tour et al. 2017).
+    
+    Parameters
+    ----------
+    sig_phase : array, shape (n_epochs, n_points)
+        Signal for phase (aka driver) 
+    sig_phase_imag : array, shape (n_epochs, n_points)
+        Imaginary part of the signal for phase
+    sig_amp : array, shape (n_epochs, n_points)
+        Signal for amplitude
+    amp_fq_range : array
+        Frequency range (for amplitude)
+    fs : int
+        Sampling frequency
+        
+    Returns
+    -------
+    MI : array, shape (n_frequencies, n_epochs)
+        Modulation indices
+        
+    """    
+    
     model = DAR(ordar=10, ordriv=1)
     n_epochs = sig_phase.shape[0]
     MI = np.zeros((amp_fq_range.size, n_epochs))
@@ -101,8 +240,27 @@ def DAR_MI(sig_phase, sig_phase_imag, sig_amp, amp_fq_range, fs):
     return MI
 
 
-# calculate PAC modulation index as in Canolty et al. 2006
+
+
 def canolty_MI(sig_phase, sig_amp):
+    """ 
+    Calculates phase-amplitude coupling modulation index 
+    as in Canolty et al. 2006.
+    
+    Parameters
+    ----------
+    sig_phase : array, shape (n_epochs, n_points)
+        Signal for phase (aka driver) 
+    sig_amp : array, shape (n_epochs, n_points)
+        Signal for amplitude
+        
+    Returns
+    -------
+    MI : array, shape (n_frequencies_phase, n_frequencies_amplitude, n_epochs)
+        Modulation indices
+        
+    """
+    
     n_phase_fq = sig_phase.shape[0]
     n_amp_fq = sig_amp.shape[0]
     n_epochs = sig_phase.shape[1]
@@ -117,8 +275,27 @@ def canolty_MI(sig_phase, sig_amp):
     return MI
 
 
-# calculate PAC modulation index as in Ozkurtr et al. 2011
+
+
 def ozkurt_MI(sig_phase, sig_amp):
+    """ 
+    Calculates phase-amplitude coupling modulation index 
+    as in Ozkurtr et al. 2011.
+    
+    Parameters
+    ----------
+    sig_phase : array, shape (n_epochs, n_points)
+        Signal for phase (aka driver) 
+    sig_amp : array, shape (n_epochs, n_points)
+        Signal for amplitude
+        
+    Returns
+    -------
+    MI : array, shape (n_frequencies_phase, n_frequencies_amplitude, n_epochs)
+        Modulation indices
+        
+    """
+    
     n_amp_fq = sig_amp.shape[0]
     n_epochs = sig_amp.shape[1]
     n_tps = sig_amp.shape[2]
@@ -149,8 +326,23 @@ def ozkurt_MI(sig_phase, sig_amp):
 
 # convert (configuration) module into a dict
 def module_to_dict(module):
-    newdict = {}
+    """ 
+    Converts module into a dictionary with all the module attributes
+    converted into dictionary items.
+    
+    Parameters
+    ----------
+    module : module
+        Module to be converted
+        
+    Returns
+    -------
+    dictionary : dict
+        Dictionary with module attributes converted into items.
+        
+    """
+    dictionary = {}
     for attr in dir(module):
         if not attr.startswith('_'):
-            newdict[attr] = getattr(module, attr)
-    return newdict
+            dictionary[attr] = getattr(module, attr)
+    return dictionary
