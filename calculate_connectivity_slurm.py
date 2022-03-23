@@ -26,6 +26,21 @@ f = open('%s/p/subjects.p' % paths['cluster'], 'rb')
 sub_info = pickle.load(f)
 f.close()
 
+# exclude subjects
+for sub in cfg.exclude:
+    ind = sub_info['sub_ID'].index(sub)
+    n_subs = len(sub_info['sub_ID'])
+    [sub_info[key].pop(ind) for key in sub_info.keys() 
+     if len(sub_info[key])==n_subs]
+sub_IDs = sub_info['sub_ID']
+
+if cfg.rois_as_seed:
+    # read the source space we are morphing to
+    src_fname = '%s/fsaverageJA/bem/fsaverageJA-oct6-src.fif' % paths['fs']
+    src = mne.read_source_spaces(src_fname)
+    verts_fsave = [s['vertno'] for s in src]
+    n_verts_fsave = len(np.concatenate(verts_fsave))
+
 #%% 
 
 sub_path = '%s/%s/' % (paths['cluster'], sub_ID)    
