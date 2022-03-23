@@ -6,14 +6,6 @@ Created on Mon Nov 30 13:00:25 2020
 @author: ja151
 """
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jan 31 15:51:58 2020
-
-@author: ja151
-"""
-
 import sys
 sys.path.append('/autofs/cluster/transcend/jussi/scripts')
 import mne
@@ -23,7 +15,7 @@ import os
 import config_connectivity as cfg
 from helper_functions import module_to_dict
 
-#%% Setting up
+#%% Calculate connectivity
 
 paths = cfg.paths    
 
@@ -47,7 +39,6 @@ if cfg.rois_as_seed:
     verts_fsave = [s['vertno'] for s in src]
     n_verts_fsave = len(np.concatenate(verts_fsave))
 
-# Loop through subjects
 for sub_ID in sub_IDs:
     sub_path = '%s/%s/' % (paths['cluster'], sub_ID)    
     inv = mne.minimum_norm.read_inverse_operator('%s/%s_1-100Hz_notch60Hz-oct6-inv.fif' 
