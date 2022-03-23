@@ -6,91 +6,25 @@ Created on Mon Nov 30 13:00:25 2020
 @author: ja151
 """
 
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Created on Fri Jan 31 15:51:58 2020
-
-@author: ja151
-"""
-
 import sys
+sys.path.append('/autofs/cluster/transcend/jussi/scripts')
 import mne
 import pickle
 import numpy as np
 import os
+import config_connectivity as cfg
+from helper_functions import module_to_dict
 
-paths = {'in': '/autofs/cluster/transcend/MEG/speech/',
-         'out': '/local_mount/space/hypatia/1/users/jussi/speech/',
-         'erm': '/autofs/cluster/transcend/MEG/erm/',
-         'fs': '/autofs/cluster/transcend/MRI/WMA/recons/',
-         'cluster': '/autofs/cluster/transcend/jussi/'
-         }
+paths = cfg.paths
 
-#%% subject ID from command line argument
+# subject ID from command line argument
 sub_ID = sys.argv[1]
 print('Calculating connectivity for subject %s' % sub_ID, flush=True)
-
-#%%
 
 # read subject info
 f = open('%s/p/subjects.p' % paths['cluster'], 'rb')
 sub_info = pickle.load(f)
 f.close()
-
-# conditions
-conds = ['MSS', 'SWS']
-n_conds = len(conds)
-equalize_event_counts = True
-add_baseline_cond = False
-
-# times
-tmin = -0.5 # None for beginning of epochs
-tmax = 1.5 # None for end of epochs
-average_times = False
-
-# freqs
-fmin = 8
-fmax = 12
-fstep = 0.5
-freqs = np.arange(fmin, fmax+fstep, fstep)
-n_freqs = len(freqs)
-n_cycles = 7.
-average_freqs = True
-
-# connectivity params
-con_methods = ['wpli2_debiased']
-con_mode = 'cwt_morlet'
-
-# rois
-roi_names = ['AC_dSPM_5verts_MSS_SWS_peak0-500ms_auto-lh'
-             # 'AC_dSPM_5verts_MSS_SWS_peak0-500ms_auto-rh'
-             # 'AC_MNE_5verts_MSS_SWS_peak0-200ms_auto-lh',
-             # 'AC_MNE_10verts_MSS_SWS_peak0-200ms_auto-lh']
-             # 'IP_dSPM_5verts_MSS_SWS_peak0-500ms_auto-lh',
-             # 'pac_MSS-SWS_TD_vs_ASD_cluster_phase9.5-10.5Hz_amp40-50Hz-lh',
-             # 'ACseedConn_TDvsASD_cluster-lh'
-             ]
-# roi_mask_names = ['LOBE.FRONTAL', 'LOBE.TEMPORAL', 'LOBE.PARIETAL']
-rois_as_seed = True # calculate connectivity from the ROIs to the rest of the brain
-                    # or between the ROIs only
-
-# params for source estimates
-snr = 1.0
-lambda2 = 1.0 / snr ** 2
-stc_method = 'MNE'
-pick_ori = 'normal'
-tc_extract = 'mean_flip'
-
-out_id = ''
-overwrite = True
-n_jobs = 1
-
-# read the source space we are morphing to
-src_fname = '%s/fsaverageJA/bem/fsaverageJA-oct6-src.fif' % paths['fs']
-src = mne.read_source_spaces(src_fname)
-verts_fsave = [s['vertno'] for s in src]
-n_verts_fsave = len(np.concatenate(verts_fsave))
 
 #%% 
 
@@ -105,6 +39,9 @@ epochs = mne.read_epochs('%s/%s_speech_1-100Hz_notch60Hz_-500-2000ms-epo.fif'
 sfreq = epochs.info['sfreq']
 times = epochs.times
 
+# times
+tmin = cfg.tmin
+tmax = cfg.tmax
 if tmin is not None: 
     i_tmin = list(times).index(tmin)
 else: 
@@ -115,8 +52,15 @@ if tmax is not None:
 else: 
     i_tmax = -1
     tmax = round(times[i_tmax])
+    
+# frequencies
+fmin = cfg.fmin
+fmax = cfg.fmax
+fstep = cfg.fstep
+freqs = np.arange(fmin, fmax+fstep, fstep)
 
-if equalize_event_counts:
+conds = cfg.conds
+if cfg.equalize_epoch_counts:
     # check which conditions only have one stimulus
     conds1 = [cond for cond in conds if len(epochs[cond].event_id)==1]
     if conds1:
@@ -138,18 +82,16 @@ if equalize_event_counts:
         epochs.equalize_event_counts(conds)   
 n_epochs = len(epochs[conds[0]])
 
-if add_baseline_cond: 
-    # epoch_length = tmax-tmin
-    # baseline_length = abs(times[0])
-    # multiplier = int(epoch_length / baseline_length)
-    # n_epochs_bl = n_epochs*multiplier
+if cfg.add_baseline_cond: 
     epochs_bl = epochs[0:n_epochs]
     i_tmin_bl = 0
     i_tmax_bl = list(times).index(0)
-    conds += ['Baseline']
+    this_conds = conds + ['Baseline']
+else:
+    this_conds = conds
 
 rois = []
-for roi_name in roi_names:
+for roi_name in cfg.rois:
     roi_path = '%s/%s/rois/%s.label' % (paths['cluster'], sub_ID, 
                                         roi_name)
     roi_path_fsave = '%s/rois/%s.label' % (paths['cluster'], roi_name)
@@ -168,34 +110,8 @@ for roi_name in roi_names:
                                                 regexp=roi_name)[0])
 
 
-# rois_mask = []
-# for roi_mask_name in roi_mask_names:
-#     roi_path = '%s/%s/rois/%s-%s.label' % (paths['cluster'], sub_ID, 
-#                                            roi_mask_name, hemi)
-#     if os.path.exists(roi_path):
-#         rois_mask.append(mne.read_label(roi_path, subject=fs_id))            
-#     else:
-#         rois_mask.append(mne.read_labels_from_annot('fsaverageJA', 
-#                                                     parc='PALS_B12_Lobes', 
-#                                                     subjects_dir=paths['fs'], 
-#                                                     regexp=roi_mask_name)[0])
-# if fsaverage ROIs, morph ROIs to subject
-   
-# if rois_mask[0].subject == 'fsaverageJA':
-#     temp = []
-#     for roi_mask in rois_mask:
-#         temp.append(roi_mask.copy().morph(subject_to=fs_id, 
-#                                           subject_from='fsaverageJA',
-#                                           subjects_dir=paths['fs']))
-        
-#     rois_mask = temp
-    
-# # all ROIs mask
-# mask = rois_mask[0]
-# for roi_mask in rois_mask[1::]: mask += roi_mask
-
 #%%
-if rois_as_seed:
+if cfg.rois_as_seed:
     for roi in rois:
         print('\nCalculating connectivity from %s to the rest of the brain\n' % roi.name)
         roi_label = roi.name#'%s-%s' % (roi.name[0:2], roi.name[-2:])
@@ -204,11 +120,10 @@ if rois_as_seed:
                                              fmin, fmax, '-'.join(conds))
         fn_out = fn_out.replace('/','')
         fn_out += '_seedROI_%s' % roi_label
-        fn_out += '_%s' % '-'.join(con_methods)
-        if out_id: fn_out += '_%s' % out_id
+        fn_out += '_%s' % '-'.join(cfg.con_method)
         out_path = '%s/p/%s.p' % (sub_path, fn_out)    
         # check if output already exist
-        if os.path.exists(out_path) and not overwrite:
+        if os.path.exists(out_path) and not cfg.overwrite:
             print('Output already exists for %s' % sub_ID)
             continue
         
@@ -221,12 +136,12 @@ if rois_as_seed:
                 this_epochs = epochs[cond]
             stcs = mne.minimum_norm.apply_inverse_epochs(this_epochs, 
                                                          inverse_operator=inv, 
-                                                         lambda2=lambda2, 
-                                                         method=stc_method, 
-                                                         pick_ori=pick_ori,
+                                                         lambda2=cfg.lambda2, 
+                                                         method=cfg.stc_method, 
+                                                         pick_ori=cfg.pick_ori,
                                                          return_generator=False)
             
-            roi_tcs = mne.extract_label_time_course(stcs, [roi], src, tc_extract,
+            roi_tcs = mne.extract_label_time_course(stcs, [roi], src, cfg.tc_extract,
                                                     return_generator=False)
 
             tcs = list(zip(roi_tcs, stcs))
@@ -234,10 +149,10 @@ if rois_as_seed:
             inds = mne.connectivity.seed_target_indices([0], np.arange(1, n_signals))
                 
             con, freqs, _, n_epochs, _ = mne.connectivity.spectral_connectivity(
-                tcs, method=con_methods, mode=con_mode, indices=inds, 
-                sfreq=sfreq, cwt_freqs=freqs, cwt_n_cycles=n_cycles, n_jobs=n_jobs)
+                tcs, method=cfg.con_method, mode=cfg.con_mode, indices=inds, 
+                sfreq=sfreq, cwt_freqs=freqs, cwt_n_cycles=cfg.n_cycles, n_jobs=cfg.n_jobs)
             
-            if average_times:
+            if cfg.average_times:
                 if cond=='Baseline':
                     i_tmin = i_tmin_bl
                     i_tmax = i_tmax_bl
@@ -246,7 +161,7 @@ if rois_as_seed:
                 else:
                     con = con[:,:,i_tmin:i_tmax].mean(-1)
         
-            if average_freqs:
+            if cfg.average_freqs:
                 if type(con)==list:
                     con = [this_con.mean(1) for this_con in con]
                 else:
@@ -255,19 +170,6 @@ if rois_as_seed:
             cons_dict.update({cond: con})
             # n_epochs_dict.update({cond: n_epochs})
         
-        data_struct = {'cons': cons_dict, 'conds': conds, 'rois': roi.name, 
-                       'times': (tmin, tmax), 'freqs': freqs, 'n_epochs': n_epochs,
-                       'n_cycles': n_cycles, 'stc_method': stc_method, 
-                       'lambda2': lambda2, 'pick_ori': pick_ori, 
-                       'con_method': con_methods, 'con_mode': con_mode,
-                       'rois_as_seed': rois_as_seed, 'average_times': average_times,
-                       'average_freqs': average_freqs}
-        
-        #% save connectivity data
-        print('Saving %s' % out_path)
-        f = open(out_path, 'wb')
-        pickle.dump(data_struct, f)
-        f.close()
         
 else:
     # output filename
@@ -275,10 +177,10 @@ else:
                                             fmin, fmax, '-'.join(conds))
     fn_out = fn_out.replace('/','')
     fn_out += '_betweenROIs'    
-    fn_out += '_%s' % '-'.join(con_methods)
+    fn_out += '_%s' % '-'.join(cfg.con_method)
     out_path = '%s/p/%s.p' % (sub_path, fn_out)    
     # check if output already exist
-    if os.path.exists(out_path) and not overwrite:
+    if os.path.exists(out_path) and not cfg.overwrite:
         print('Output already exists for %s' % sub_ID)
         exit()
     
@@ -291,25 +193,25 @@ else:
             this_epochs = epochs[cond]
         stcs = mne.minimum_norm.apply_inverse_epochs(this_epochs, 
                                                      inverse_operator=inv, 
-                                                     lambda2=lambda2, 
-                                                     method=stc_method, 
-                                                     pick_ori=pick_ori,
+                                                     lambda2=cfg.lambda2, 
+                                                     method=cfg.stc_method, 
+                                                     pick_ori=cfg.pick_ori,
                                                      return_generator=False)
         
-        roi_tcs = mne.extract_label_time_course(stcs, rois, src, tc_extract,
+        roi_tcs = mne.extract_label_time_course(stcs, rois, src, cfg.tc_extract,
                                                 return_generator=False)
            
         con, freqs, _, n_epochs, _ = mne.connectivity.spectral_connectivity(
-            roi_tcs, method=con_methods, mode=con_mode, indices=None, 
-            sfreq=sfreq, cwt_freqs=freqs, cwt_n_cycles=n_cycles, n_jobs=n_jobs)
+            roi_tcs, method=cfg.con_method, mode=cfg.con_mode, indices=None, 
+            sfreq=sfreq, cwt_freqs=freqs, cwt_n_cycles=cfg.n_cycles, n_jobs=cfg.n_jobs)
         
-        if average_times:
+        if cfg.average_times:
             if type(con)==list:
                 con = [this_con[:,:,:,i_tmin:i_tmax].mean(-1) for this_con in con]
             else:
                 con = con[:,:,:,i_tmin:i_tmax].mean(-1)
     
-        if average_freqs:
+        if cfg.average_freqs:
             if type(con)==list:
                 con = [this_con.mean(-1) for this_con in con]
             else:
@@ -318,17 +220,15 @@ else:
         cons_dict.update({cond: con})
         # n_epochs_dict.update({cond: n_epochs})
     
-    data_struct = {'cons': cons_dict, 'conds': conds, 'rois': roi_names, 
-                   'times': (tmin, tmax), 'freqs': freqs, 'n_epochs': n_epochs,
-                   'n_cycles': n_cycles, 'stc_method': stc_method, 
-                   'lambda2': lambda2, 'pick_ori': pick_ori, 
-                   'con_method': con_methods, 'con_mode': con_mode,
-                   'rois_as_seed': rois_as_seed, 'average_times': average_times,
-                   'average_freqs': average_freqs}
-    
-    #% save connectivity data
-    print('Saving %s' % out_path)
-    f = open(out_path, 'wb')
-    pickle.dump(data_struct, f)
-    f.close()
+# convert cfg module to dict
+cfg_dict = module_to_dict(cfg)
+# output struct
+out = {'cfg': cfg_dict, 'cons': cons_dict, 'conds': this_conds, 
+       'times': (tmin, tmax), 'freqs': freqs, 'n_epochs': n_epochs}
+
+#% save connectivity data
+print('Saving %s' % out_path)
+f = open(out_path, 'wb')
+pickle.dump(out, f)
+f.close()
                 
