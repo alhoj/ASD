@@ -18,36 +18,79 @@ import subprocess
 print(__doc__)
 
 
-paths = {'in': '/autofs/cluster/transcend/MEG/speech/',
+paths = {'speech': '/autofs/cluster/transcend/MEG/speech/',
          'local': '/local_mount/space/hypatia/1/users/jussi/speech/',
          'erm': '/autofs/cluster/transcend/MEG/erm/',
          'fs': '/autofs/cluster/transcend/MRI/WMA/recons/',
+         'cluster': '/autofs/cluster/transcend/jussi/',
+         'cb': '/autofs/cluster/transcend/data_exchange/cerebellar_source_spaces_autism_cohort/source_spaces'
          }
 
-class MNEprepro():
+f = open('%s/p/subjects.p' % paths['cluster'], 'rb')
+sub_info = pickle.load(f)
+f.close()
 
-    def __init__(self, sub, paths):
+class MNEprepro():
+    """
+    Container for subject-specific paths, names, and preprocessing functions
+    
+    Parameters
+    ----------
+    sub : str
+        Subject ID
+        
+    Attributes
+    ----------
+    erm_name : list
+        Name(s) of the empty room recording fif file(s)
+    fs_id_new : str
+        FreeSurfer ID (updated)
+    fs_id_old : str
+        FreeSurfer ID (original)
+    path_cluster : str
+        Subject directory in /autofs/cluster/
+    path_erm : str
+        Empty room MEG directory
+    path_fs : str
+        FreeSurfer reconstruction directory
+    path_local : str
+        Subject directory in /local_mount/space/hypatia/
+    path_speech : str
+        Speech paradigm MEG directory
+    raw_names : list
+        Name(s) of the Speech paradigm raw fif file(s)
+    src_cb : str
+        Cerebellar source space -src.fif file
+    sub : str
+        Subject ID
+        
+    """
+    def __init__(self, sub):        
         self.sub = sub
-        self.path_fs = paths['fs']
+        self.fs_id_new = sub_info['FS_dir_new'][sub_info['sub_ID'].index(self.sub)]
+        self.fs_id_old = sub_info['FS_dir'][sub_info['sub_ID'].index(self.sub)]
+        self.path_fs = os.path.join(paths['fs'], self.fs_id_new)
         self.path_local = os.path.join(paths['local'], self.sub)
+        self.path_cluster = os.path.join(paths['cluster'], self.sub)
         # check if original raw-files exist in the local directory
         self.raw_names = [file for file in os.listdir(self.path_local) 
                           if file.endswith('raw.fif') and 'speech' in file]
         self.erm_name = [file for file in os.listdir(self.path_local) 
                          if file.endswith('raw.fif') and 'erm' in file]
-        self.path_cb = paths['cb']
+        self.src_cb = '%s/%s-src.fif' % (paths['cb'], self.fs_id_old)
         # otherwise read file names from the cluster directory
         if not self.raw_names:
-            session = os.listdir(os.path.join(paths['in'], self.sub))
-            if len(session) > 1: session='/'
-            self.path_in = os.path.join(paths['in'], self.sub, session[0])             
+            session = os.listdir(os.path.join(paths['speech'], self.sub))
+            if len(session) > 2: session='/'
+            elif len(session) == 2: session=session[0]
+            self.path_speech = os.path.join(paths['speech'], self.sub, session[0])             
             self.path_erm = os.path.join(paths['erm'], self.sub, session[0])            
-            self.raw_names = [file for file in os.listdir(self.path_in) 
+            self.raw_names = [file for file in os.listdir(self.path_speech) 
                               if file.endswith('raw.fif') and 'speech' in file]
             self.erm_name = [file for file in os.listdir(self.path_erm) 
                              if file.endswith('raw.fif') and 'erm' in file]
         else:
-            self.path_in = self.path_local
+            self.path_speech = self.path_local
             self.path_erm = self.path_local
             
     
@@ -58,7 +101,7 @@ class MNEprepro():
         self.raw = [] # initialize list
         for raw_name in self.raw_names:   
             
-            raw = mne.io.read_raw_fif(os.path.join(self.path_in, raw_name), preload=False)
+            raw = mne.io.read_raw_fif(os.path.join(self.path_speech, raw_name), preload=False)
             out_fname = os.path.join(self.path_local, os.path.splitext(raw_name)[0] + '_bads.txt')   
             os.makedirs(self.path_local, exist_ok=True)
                             
@@ -206,7 +249,7 @@ class MNEprepro():
             head_pos = None
         else:
             # use the first run as a reference for aligning runs to a common head position
-            info = mne.io.read_info(os.path.join(self.path_in, self.raw_names[0]), verbose='warning')
+            info = mne.io.read_info(os.path.join(self.path_speech, self.raw_names[0]), verbose='warning')
             destination = info['dev_head_t'] 
             coord_frame = 'head'
         
@@ -227,7 +270,7 @@ class MNEprepro():
             if os.path.exists(out_fname) and not overwrite:
                 print('Maxwell filter already run. No need to rerun.')
                 if not erm:
-                    info = mne.io.read_info(os.path.join(self.path_in, raw_name), verbose='warning')
+                    info = mne.io.read_info(os.path.join(self.path_speech, raw_name), verbose='warning')
                     self.head_center = {} # initialize dict for saving head center data
                     self.head_center['radius'], self.head_center['origin_head'], \
                         self.head_center['origin_device']  = \
@@ -240,8 +283,8 @@ class MNEprepro():
                 else:
                     print('Running Maxwell filter for subject ' + self.sub + ', file ' + raw_name)
                     print('Do movement compensation')
-                    raw = mne.io.read_raw_fif(os.path.join(self.path_in, raw_name), preload=False)
-                    head_pos_file = os.path.join(self.path_in, os.path.splitext(raw_name)[0]) + '_hp.pos'
+                    raw = mne.io.read_raw_fif(os.path.join(self.path_speech, raw_name), preload=False)
+                    head_pos_file = os.path.join(self.path_speech, os.path.splitext(raw_name)[0]) + '_hp.pos'
                     head_pos = mne.chpi.read_head_pos(head_pos_file)
                     
                 # read bad channels from text file
@@ -431,44 +474,39 @@ class MNEprepro():
                 
     def forward_modeling(self, spacing='ico5', overwrite=False):
           
-        f = open('%s/p/subjects.p' % paths['local'], 'rb')
-        sub_info = pickle.load(f)
-        f.close()
-
-        fs_id = sub_info['FS_dir'][sub_info['sub_ID'].index(self.sub)]
         print('Forward modeling subject ' + self.sub)
-        print('Freesurfer ID: ' + fs_id)
+        print('Freesurfer ID: ' + self.fs_id)
         
-        fname_src = os.path.join(self.path_fs, fs_id, 'bem', '%s-%s-src.fif' % (fs_id, spacing))
-        fname_src_alt = os.path.join(self.path_fs, fs_id, 'bem', '%s-%s-%s-src.fif' % (fs_id, spacing[0:3], spacing[3]))
-        fname_bem = os.path.join(self.path_fs, fs_id, 'bem', '%s-%s-bem-sol.fif' % (fs_id, spacing))
-        fname_bem_alt = os.path.join(self.path_fs, fs_id, 'bem', '%s-%s-%s-bem-sol.fif' % (fs_id, spacing[0:3], spacing[3]))
+        fname_src = os.path.join(self.path_fs, 'bem', '%s-%s-src.fif' % (self.fs_id_old, spacing))
+        fname_src_alt = os.path.join(self.path_fs, 'bem', '%s-%s-%s-src.fif' % (self.fs_id_old, spacing[0:3], spacing[3]))
+        fname_bem = os.path.join(self.path_fs, 'bem', '%s-%s-bem-sol.fif' % (self.fs_id_old, spacing))
+        fname_bem_alt = os.path.join(self.path_fs, 'bem', '%s-%s-%s-bem-sol.fif' % (self.fs_id_old, spacing[0:3], spacing[3]))
         fname_trans = os.path.join(self.path_local, '%s_speech_raw_tsss-trans.fif' % self.sub)
         fname_trans_alt = os.path.join(self.path_local, '%s_speech-trans.fif' % self.sub)
         fname_fwd = os.path.join(self.path_local, '%s_speech_%s-fwd.fif' % (self.sub, spacing))
         
         if not os.path.exists(fname_src) and os.path.exists(fname_src_alt): fname_src = fname_src_alt
         if not os.path.exists(fname_src) or overwrite:
-            src = mne.setup_source_space(subject=fs_id, subjects_dir=self.path_fs, spacing=spacing, n_jobs=12)
+            src = mne.setup_source_space(subject=self.fs_id_new, subjects_dir=paths['fs'], spacing=spacing, n_jobs=12)
             src.save(fname_src, overwrite=overwrite)
                     
         if not os.path.exists(fname_bem) and os.path.exists(fname_bem_alt): fname_bem = fname_bem_alt
         if not os.path.exists(fname_bem) or overwrite:
-            if not os.path.exists('%s/%s/bem' % (self.path_fs, fs_id)):
-                subprocess.call('mkdir %s/%s/bem' % (self.path_fs, fs_id), shell=True)
-            mne.bem.make_watershed_bem(subject=fs_id, subjects_dir=self.path_fs, atlas=True, overwrite=False)
+            if not os.path.exists('%s/bem' % self.path_fs):
+                subprocess.call('mkdir %s/bem' % self.path_fs, shell=True)
+            mne.bem.make_watershed_bem(subject=self.fs_id_new, subjects_dir=paths['fs'], atlas=True, overwrite=False)
             # If "Command not found: mri_watershed", run the output command in tcsh after running
             # setenv SUBJECTS_DIR /autofs/cluster/transcend/MRI/WMA/recons/
             # source /usr/local/freesurfer/fs-stable6-env-autoselect
             
-            os.system('rsync -avztcp %s/%s/bem/watershed/%s_inner_skull_surface ' \
-                      '%s/%s/bem/inner_skull.surf' % (self.path_fs, fs_id, fs_id, self.path_fs, fs_id))
-            os.system('rsync -avztcp %s/%s/bem/watershed/%s_outer_skull_surface ' \
-                      '%s/%s/bem/outer_skull.surf' % (self.path_fs, fs_id, fs_id, self.path_fs, fs_id))
-            os.system('rsync -avztcp %s/%s/bem/watershed/%s_outer_skin_surface ' \
-                      '%s/%s/bem/outer_skin.surf' % (self.path_fs, fs_id, fs_id, self.path_fs, fs_id))
+            os.system('rsync -avztcp %s/bem/watershed/%s_inner_skull_surface ' \
+                      '%s/bem/inner_skull.surf' % (self.path_fs, self.fs_id_old, self.path_fs))
+            os.system('rsync -avztcp %s/bem/watershed/%s_outer_skull_surface ' \
+                      '%s/bem/outer_skull.surf' % (self.path_fs, self.fs_id_old, self.path_fs))
+            os.system('rsync -avztcp %s/bem/watershed/%s_outer_skin_surface ' \
+                      '%s/bem/outer_skin.surf' % (self.path_fs, self.fs_id_old, self.path_fs))
             
-            model = mne.make_bem_model(subject=fs_id, ico=4, subjects_dir=self.path_fs, conductivity=[0.3])
+            model = mne.make_bem_model(subject=self.fs_id_new, ico=4, subjects_dir=paths['fs'], conductivity=[0.3])
             bem = mne.make_bem_solution(model)
             mne.write_bem_solution(fname_bem, bem)
 
@@ -582,18 +620,43 @@ class MNEprepro():
             
             
     def get_head_movement(self, plot=False):
-        
+        from nibabel.eulerangles import mat2euler
+        # from mne.fixes import einsum
         self.head_movement = []
         for raw_name in self.raw_names:
-            head_pos_file = os.path.join(self.path_in, os.path.splitext(raw_name)[0]) + '_hp.pos'
+            head_pos_file = os.path.join(self.path_speech, os.path.splitext(raw_name)[0]) + '_hp.pos'
             head_pos = mne.chpi.read_head_pos(head_pos_file)
             if plot: mne.viz.plot_head_positions(head_pos, mode='traces')
             trans, rot, t = mne.chpi.head_pos_to_trans_rot_t(head_pos)
             use_trans = np.einsum('ijk,ik->ij', rot[:, :3, :3].transpose([0, 2, 1]), -trans) * 1000
-            norm = np.linalg.norm(use_trans,axis=1)
-            self.head_movement.append(norm.std())
+            use_rot = rot.transpose([0, 2, 1])
+            rotations = np.zeros(use_trans.shape)    
+            for i, mat2 in enumerate(use_rot):
+                rads2 = mat2euler(mat2) # rotations in radians around z, y, x axes
+                yaw, roll, pitch = np.degrees(rads2)
+                rotations[i,:] = pitch, roll, yaw
+            mot_all = np.concatenate([np.expand_dims(t,1), use_trans, rotations], axis=1) # This is for output to a file, we don't need time in the array
+            mot_parms = np.diff(mot_all[:, 1:7], axis=0)   
+            # Get motion at each measurement (enorm of the 6 motion parms)
+            mot_norms = np.linalg.norm(mot_parms, axis=1)   
+            motion_mean = np.mean(mot_norms)
+            motion_std = np.std(mot_norms, ddof=1)
+            self.head_movement.append((motion_mean, motion_std))
+            
+            # norm = np.linalg.norm(use_trans,axis=1)
+            # self.head_movement.append(norm.std())
             
                    
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
             
             
             
