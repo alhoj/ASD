@@ -72,13 +72,19 @@ class MNEprepro():
         self.path_fs = os.path.join(paths['fs'], self.fs_id_new)
         self.path_local = os.path.join(paths['local'], self.sub)
         self.path_cluster = os.path.join(paths['cluster'], self.sub)
-        # check if original raw-files exist in the local directory
-        self.raw_names = [file for file in os.listdir(self.path_local) 
-                          if file.endswith('raw.fif') and 'speech' in file]
-        self.erm_name = [file for file in os.listdir(self.path_local) 
-                         if file.endswith('raw.fif') and 'erm' in file]
         self.src_cb = '%s/%s-src.fif' % (paths['cb'], self.fs_id_old)
-        # otherwise read file names from the cluster directory
+        
+        # check if original raw-files exist in local directory (or if the directory even exists)
+        if not os.path.exists(self.path_local):
+            subprocess.call('mkdir %s' % self.path_local, shell=True)
+            self.raw_names = []
+        else:
+            self.raw_names = [file for file in os.listdir(self.path_local) 
+                              if file.endswith('raw.fif') and 'speech' in file]
+            self.erm_name = [file for file in os.listdir(self.path_local) 
+                             if file.endswith('raw.fif') and 'erm' in file]
+        
+        # otherwise read file names from the original speech directory
         if not self.raw_names:
             session = os.listdir(os.path.join(paths['speech'], self.sub))
             if len(session) > 2: session='/'
@@ -94,8 +100,25 @@ class MNEprepro():
             self.path_erm = self.path_local
             
     
-    def detect_bad_channels(self, zscore_th=6, method='power_log', neigh_max_distance=0.1, overwrite=False):                        
-
+    def detect_bad_channels(self, method='power_log', zscore_th=6.0, neigh_max_dist=0.1, plot=True, overwrite=False):                        
+        """
+        Detect bad channels from raw fif file
+        
+        Parameters
+        ----------
+        method : str
+            Method to use. Options are 'corr' (local uncorrelation), 'amplitude' (amplitude range),
+            'power' (magnitude), 'corr_power' (combine uncorrelation with magnitude),
+            'amplitude_log' (amplitude + log amplitude), 'power_log' (default; power + log power)
+        zscore_th : float
+            Threshold for detecting bad channel (default 6) 
+        neigh_max_dist : float
+            Maximum distance of neighboring channels (applies only if method is 'corr' or 'corr_power')
+        plot : bool
+            Plot channels and diagnostics (default True)
+        overwrite : bool
+            Overwrite if already run (default False)
+        """
         print('Detecting bad channels...')
         
         self.raw = [] # initialize list
@@ -130,12 +153,12 @@ class MNEprepro():
                 # Get channel distances matrix
                 chns_locs = np.asarray([x['loc'][:3] for x in raw_copy.info['chs']])
                 chns_dist = np.linalg.norm(chns_locs - chns_locs[:, None], axis=-1)
-                chns_dist[chns_dist > neigh_max_distance] = 0
+                chns_dist[chns_dist > neigh_max_dist] = 0
         
                 # Get avg channel uncorrelation between neighbours
                 chns_corr = np.abs(np.corrcoef(data))
-                weig = np.array(chns_dist, dtype=bool)
-                chn_nei_corr = np.average(chns_corr, axis=1, weights=weig)
+                weights = np.array(chns_dist, dtype=bool)
+                chn_nei_corr = np.average(chns_corr, axis=1, weights=weights)
                 chn_nei_uncorr_z = zscore(1-chn_nei_corr)  # l over corr higer Z
         
                 # Get channel magnitudes separately for magnetometers and gradiometers
@@ -191,10 +214,15 @@ class MNEprepro():
                 
         
                 bad_chns = list(compress(raw_copy.info['ch_names'], max_th))
-                raw_copy.info['bads'] = bad_chns
-                
                 if bad_chns:
-                    print('Plotting data, bad channels: ' + str(bad_chns))
+                    print('Bad channels: %s' % bad_chns)
+                else:
+                    print('No bad channels:')
+                # mark bad channels into raw file and plot data
+                raw.info['bads'] = bad_chns                
+                
+                if plot:
+                    print('Plotting data')                        
                     if method == 'power_log':
                         plt.figure(), plt.plot(feat_vec[0,:], label='power'), 
                         plt.plot(feat_vec[1,:], label='abs log power'), 
@@ -205,26 +233,11 @@ class MNEprepro():
                         plt.axhline(zscore_th, color='k'), plt.legend(loc="upper left")
                     else:
                         plt.figure(), plt.plot(feat_vec), plt.axhline(zscore_th)
-                    
-                else:
-                    print('Plotting data, no bad channels:')
-                    if method == 'power_log':
-                        plt.figure(), plt.plot(feat_vec[0,:], label='power'), 
-                        plt.plot(feat_vec[1,:], label='abs log amplitude'), 
-                        plt.axhline(zscore_th, color='k'), plt.legend(loc="upper left")  
-                    elif method == 'amplitude_log':
-                        plt.figure(), plt.plot(feat_vec[0,:], label='amplitude'), 
-                        plt.plot(feat_vec[1,:], label='abs log amplitude'), 
-                        plt.axhline(zscore_th, color='k'), plt.legend(loc="upper left")
-                    else:
-                        plt.figure(), plt.plot(feat_vec), plt.axhline(zscore_th)
-                
-                # mark bad channels into raw file and plot data
-                raw.info['bads'] = bad_chns
-                raw.plot(n_channels=100, bad_color='r', highpass=f1, lowpass=f2, start=t1)
+
+                    raw.plot(n_channels=100, bad_color='r', highpass=f1, lowpass=f2, start=t1)
                   
                 # write bad channels into text file
-                print('Writing bad channels: ' + str(bad_chns) + ' to ' + out_fname)
+                print('Writing bad channels: %s to %s' % (bad_chns, out_fname))
                 with open(out_fname, 'w') as f: 
                     for line in bad_chns: 
                         f.write(str(line) + '\n')
@@ -236,7 +249,20 @@ class MNEprepro():
                 
 
     def run_maxwell_filter(self, tSSS=True, erm=False, plot=False, overwrite=False):
-                                            
+        """
+        Run Maxwell filtering (i.e., movement compensation and artifact reduction)
+        
+        Parameters
+        ----------
+        tSSS : bool
+            Use temporal Signal Space Separation (default), otherwise SSS
+        erm : bool
+            Use empty room data (default False) 
+        plot : bool
+            Plot channels (default False)
+        overwrite : bool
+            Overwrite if already run (default False)
+        """
         # fine calibration file (encodes site-specific information about sensor orientation and calibration)
         fine_cal_file = '/autofs/space/megraid_research/orsay/8/megdev/megsw-neuromag/databases/sss/sss_cal.dat'
         # crosstalk compensation file (reduces interference between Elekta’s co-located magnetometer and paired gradiometer sensor units)
@@ -328,8 +354,21 @@ class MNEprepro():
 
 
             
-    def run_ICA(self, data_to_use='tsss', zscore_th=3, plot=False, overwrite=False):
+    def run_ICA(self, data_to_use='tsss', zscore_th=3.0, plot=True, overwrite=False):
+        """
+        Run Independent Component Analysis to reduce physiological artifacts (e.g., eye blinks and heart beats)
         
+        Parameters
+        ----------
+        data_to_use : str
+            Which data to se, options are 'raw', 'SSS', and 'tSSS' (default)
+        zscore_th : float
+            Another arbitrary threshold (default 3.0) 
+        plot : bool
+            Plot diagnostics (default True)
+        overwrite : bool
+            Overwrite if already run (default False)
+        """
         print('Running ICA...')
                     
         if data_to_use == 'raw':                    
@@ -373,10 +412,10 @@ class MNEprepro():
                     ica.plot_sources(eog_evoked, title='Reconstructed latent sources, time-locked to EOG events')
                     ica.plot_sources(ecg_evoked, title='Reconstructed latent sources, time-locked to ECG events')
                 
-#                    ica.plot_scores(eog_scores)
-#                    ica.plot_scores(ecg_scores)
-#                    ica.plot_properties(raw_filt, picks=eog_inds)
-#                    ica.plot_properties(raw_filt, picks=ecg_inds)
+                    ica.plot_scores(eog_scores)
+                    ica.plot_scores(ecg_scores)
+                    ica.plot_properties(raw_filt, picks=eog_inds)
+                    ica.plot_properties(raw_filt, picks=ecg_inds)
                 
                 raw_reconst = raw.copy().load_data()
                 ica.apply(raw_reconst)
