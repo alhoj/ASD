@@ -427,21 +427,48 @@ class MNEprepro():
                 
 
 
-    def get_epochs(self, data_to_use='tsss', tmin=-0.2, tmax=2.5, fmin=0, fmax=40, notch=None,
-                   reject=dict(grad=4000e-13, mag=6e-12), apply_ica=True, postfix='', overwrite=False):
-            
+    def get_epochs(self, data_to_use='tsss', tmin=-0.2, tmax=2.0, fmin=None, fmax=40, notch=None,
+                   reject=None, apply_ica=True, postfix=None, overwrite=False):
+        """
+        Extract epochs from raw data
+        
+        Parameters
+        ----------
+        data_to_use : str
+            Which data to se, options are 'raw', 'SSS', and 'tSSS' (default)
+        tmin : float
+            Beginning of epoch with respect to events in seconds (default -0.2)
+        tmax : float
+            End of epoch with respect to events in seconds (default 2.0)
+        fmin : float | None
+            The lower pass-band edge frequency of the filter in Hz (default None)
+        fmax : float | None
+            The upper pass-band edge frequency of the filter in Hz (default 40)
+        notch : float | None
+            Frequency to notch filter in Hz (default None)
+        reject : dict | None
+            Reject epochs based on maximum peak-to-peak signal amplitude 
+            (e.g., dict(grad=4000e-13, mag=4e-12); default None)
+        apply_ica : bool
+            Apply the ICA solution to the data (default True)
+        postfix : str | None
+            Save epochs using this postfix in the name
+        overwrite : bool
+            Overwrite if already run (default False)
+        """
         print('Epoching...')
         
         if data_to_use == 'raw':
             raw_names = self.raw_names   
-            out_fname = os.path.join(self.path_local, self.sub + '_speech' + postfix + '-epo.fif')
         elif data_to_use == 'sss':
             raw_names = [os.path.splitext(raw_name)[0] + '_sss.fif' for raw_name in self.raw_names]   
-            out_fname = os.path.join(self.path_local, self.sub + '_speech' + postfix + '-epo.fif')
         elif data_to_use == 'tsss':
             raw_names = [os.path.splitext(raw_name)[0] + '_tsss.fif' for raw_name in self.raw_names]
-            out_fname = os.path.join(self.path_local, self.sub + '_speech' + postfix + '-epo.fif')
                                  
+        out_fname = '%s/%s-epo.fif' % (self.path_local, self.sub)
+        if postfix:
+            out_fname = '%s_%s-%s' % (out_fname.split('-')[0], postfix, out_fname.split('-')[1])
+
         self.epochs = [] # initialize list
         
         # if no overwrite requested, check if epoching already done 
