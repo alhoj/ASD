@@ -538,29 +538,59 @@ class MNEprepro():
 
                 
                 
-    def forward_modeling(self, spacing='ico5', overwrite=False):
-          
-        print('Forward modeling subject ' + self.sub)
-        print('Freesurfer ID: ' + self.fs_id)
+    def forward_modeling(self, fn_trans=None, fn_src=None, fn_bem=None, fn_fwd=None, spacing='ico5', overwrite=False):
+        """
+        Computes the forward solution. You need 1) -trans.fif file that contains the MEG-MRI coregistration info,
+        2) source space (-src.fif), and 3) BEM surfaces (for MEG only, inner skull surface is enough).
+        If source space and/or BEM are not precomputed, the script will compute them.
         
-        fname_src = os.path.join(self.path_fs, 'bem', '%s-%s-src.fif' % (self.fs_id_old, spacing))
-        fname_src_alt = os.path.join(self.path_fs, 'bem', '%s-%s-%s-src.fif' % (self.fs_id_old, spacing[0:3], spacing[3]))
-        fname_bem = os.path.join(self.path_fs, 'bem', '%s-%s-bem-sol.fif' % (self.fs_id_old, spacing))
-        fname_bem_alt = os.path.join(self.path_fs, 'bem', '%s-%s-%s-bem-sol.fif' % (self.fs_id_old, spacing[0:3], spacing[3]))
-        fname_trans = os.path.join(self.path_local, '%s_speech_raw_tsss-trans.fif' % self.sub)
-        fname_trans_alt = os.path.join(self.path_local, '%s_speech-trans.fif' % self.sub)
-        fname_fwd = os.path.join(self.path_local, '%s_speech_%s-fwd.fif' % (self.sub, spacing))
+        Parameters
+        ----------
+        fn_trans : str | None
+            Filename / path to the head<->MRI transform *-trans.fif file. If None, uses default name.
+        fn_src : str | None
+            Filename / path to the source space *-src.fif file. If file doesn't exist, computes it and saves to the path.
+            If None, uses default name. 
+        fn_bem : str | None
+            Filename / path to the BEM. If file does not exist, computes it and saves to the path. If None, uses default name.
+        fn_fwd : str | None
+            Filename / path to save the forward solution. If None, uses default name.
+        spacing : str | int
+            The spacing to use in the source space. Can be 'ico#' for a recursively subdivided icosahedron, 
+            'oct#' for a recursively subdivided octahedron, 'all' for all points, or an integer to use 
+            approximate distance-based spacing (in mm). Recommended either 'ico5' (default) or 'oct6'.
+            Used only if source model not precomputed.
+            See https://mne.tools/0.23/generated/mne.setup_source_space.html#mne.setup_source_space
+        overwrite : bool
+            Overwrite if already run (default False).
+        """
+
+        print('Forward modeling subject %s' % self.sub)
+        print('Freesurfer ID: %s' % self.fs_id_new)
+
+        if not fn_trans:
+            fn_trans = os.path.join(self.path_local, '%s_speech_raw_tsss-trans.fif' % self.sub)
+            fn_trans_alt = os.path.join(self.path_local, '%s_speech-trans.fif' % self.sub)
+        if not fn_bem:
+            fn_bem = os.path.join(self.path_fs, 'bem', '%s-%s-bem-sol.fif' % (self.fs_id_old, spacing))
+            fn_bem_alt = os.path.join(self.path_fs, 'bem', '%s-%s-%s-bem-sol.fif' % (self.fs_id_old, spacing[0:3], spacing[3]))
+        if not fn_src:
+            fn_src = os.path.join(self.path_fs, 'bem', '%s-%s-src.fif' % (self.fs_id_old, spacing))
+            fn_src_alt = os.path.join(self.path_fs, 'bem', '%s-%s-%s-src.fif' % (self.fs_id_old, spacing[0:3], spacing[3]))
+
+        if not fn_fwd:        
+            fn_fwd = os.path.join(self.path_local, '%s_speech_%s-fwd.fif' % (self.sub, spacing))
         
-        if not os.path.exists(fname_src) and os.path.exists(fname_src_alt): fname_src = fname_src_alt
-        if not os.path.exists(fname_src) or overwrite:
+        if not os.path.exists(fn_src) and os.path.exists(fn_src_alt): fn_src = fn_src_alt
+        if not os.path.exists(fn_src) or overwrite:
             src = mne.setup_source_space(subject=self.fs_id_new, subjects_dir=paths['fs'], spacing=spacing, n_jobs=12)
-            src.save(fname_src, overwrite=overwrite)
+            src.save(fn_src, overwrite=overwrite)
                     
-        if not os.path.exists(fname_bem) and os.path.exists(fname_bem_alt): fname_bem = fname_bem_alt
-        if not os.path.exists(fname_bem) or overwrite:
+        if not os.path.exists(fn_bem) and os.path.exists(fn_bem_alt): fn_bem = fn_bem_alt
+        if not os.path.exists(fn_bem) or overwrite:
             if not os.path.exists('%s/bem' % self.path_fs):
                 subprocess.call('mkdir %s/bem' % self.path_fs, shell=True)
-            mne.bem.make_watershed_bem(subject=self.fs_id_new, subjects_dir=paths['fs'], atlas=True, overwrite=False)
+            mne.bem.make_watershed_bem(subject=self.fs_id_new, subjects_dir=paths['fs'], atlas=True, overwrite=True)
             # If "Command not found: mri_watershed", run the output command in tcsh after running
             # setenv SUBJECTS_DIR /autofs/cluster/transcend/MRI/WMA/recons/
             # source /usr/local/freesurfer/fs-stable6-env-autoselect
@@ -574,16 +604,16 @@ class MNEprepro():
             
             model = mne.make_bem_model(subject=self.fs_id_new, ico=4, subjects_dir=paths['fs'], conductivity=[0.3])
             bem = mne.make_bem_solution(model)
-            mne.write_bem_solution(fname_bem, bem)
+            mne.write_bem_solution(path_bem, bem)
 
-        if not os.path.exists(fname_trans) and os.path.exists(fname_trans_alt): fname_trans = fname_trans_alt
-        if os.path.exists(fname_fwd) and not overwrite:
+        if not os.path.exists(fn_trans) and os.path.exists(fn_trans_alt): fn_trans = fn_trans_alt
+        if os.path.exists(fn_fwd) and not overwrite:
             print('Forward model already exists. No need to rerun.')
-            self.fwd = mne.read_forward_solution(fname_fwd)
+            self.fwd = mne.read_forward_solution(fn_fwd)
         else:
             info = mne.io.read_info(os.path.join(self.path_local, os.path.splitext(self.raw_names[0])[0] + '_tsss.fif'), verbose='warning')
-            self.fwd = mne.make_forward_solution(info, fname_trans, fname_src, fname_bem)
-            mne.write_forward_solution(fname_fwd, self.fwd, overwrite=overwrite)
+            self.fwd = mne.make_forward_solution(info, fn_trans, fn_src, fn_bem)
+            mne.write_forward_solution(fn_fwd, self.fwd, overwrite=True)
             
         print('\n')
             
