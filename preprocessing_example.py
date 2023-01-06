@@ -66,6 +66,26 @@ sub.get_epochs()
 # See https://mne.tools/0.23/auto_tutorials/forward/30_forward.html
 sub.forward_modeling()
 
+## Step 6: Noise covariance matrix
+# Computes noise covariance matrix required for the minimum-norm inverse solution.
+# By default, uses empty room data and empirical method where the sample covariance will be computed.
+# Filtering (bandpass) should be identical to that of the epochs.
+# Also, if Maxwell filtering and/or ICA was applied on the subject data, it should be applied also 
+# to empty room data before estimating the noise covariance (meaning that if the subject data was 
+# collected in e.g. three runs with different ICA components excluded in each run, the empty room data 
+# should be processed three times resulting in three matching processed empty room data files).
+# Assumes that the processed empty room data file(s) are in the local directory and have 'erm' in the name
+# See https://mne.tools/stable/generated/mne.compute_covariance.html
+sub.compute_noise_cov()
+
+## Step 7: Assemble inverse operator
+# Gets the forward solution and noise covariance matrix from the self-instance.
+# By default, uses loose orientation constraint of 0.2 and depth weighting of 0.8.
+# Saves the output to the local directory with an optional "postfix" (i.e., subID_"postfix"-inv.fif).
+# To compute the forward operator you need 1) -trans.fif file that contains the MEG-MRI coregistration info,
+# 2) source space (-src.fif), and 3) BEM surfaces (for EEG, inn
+# See https://mne.tools/stable/generated/mne.minimum_norm.make_inverse_operator.html
+sub.make_inv_operator()
 
 
 
