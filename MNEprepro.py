@@ -435,7 +435,7 @@ class MNEprepro():
         Parameters
         ----------
         data_to_use : str
-            Which data to se, options are 'raw', 'SSS', and 'tSSS' (default)
+            Which data to use, options are 'raw', 'SSS', and 'tSSS' (default)
         tmin : float
             Beginning of epoch with respect to events in seconds (default -0.2)
         tmax : float
@@ -619,24 +619,57 @@ class MNEprepro():
             
 
             
-    def compute_noise_cov(self, erm=True, method='empirical', fmin=None, fmax=None, 
-                          notch=None, postfix='', rank=None, n_jobs=1, overwrite=False):
+    def compute_noise_cov(self, erm=True, method='empirical', fmin=None, fmax=40, 
+                          notch=None, rank=None, postfix=None, n_jobs=1, overwrite=False):
+        """
+        Computes noise covariance matrix required for the minimum-norm inverse solution.
+        Filtering (bandpass) should be identical to that of the epochs.
+        
+        Parameters
+        ----------
+        erm : bool
+            Use empty room data (default) or pre-stimulus baselines
+        method : str
+            Method used for covariance estimation. If 'empirical' (default), the sample covariance will be computed. 
+            If 'auto', the best estimator will be determined based on log-likelihood and cross-validation on unseen 
+            data as described in [1]. Valid methods are 'empirical', 'diagonal_fixed', 'shrunk', 'oas', 'ledoit_wolf', 
+            'factor_analysis', 'shrinkage', and 'pca'.
+            For more information, see https://mne.tools/stable/generated/mne.compute_covariance.html  
+            [1] Denis A. Engemann and Alexandre Gramfort. Automated model selection in covariance estimation and spatial 
+                whitening of MEG and EEG signals. NeuroImage, 108:328-342, 2015. doi:10.1016/j.neuroimage.2014.12.040. 
+        fmin : float | None
+            The lower pass-band edge frequency of the filter in Hz (default None)
+        fmax : float | None
+            The upper pass-band edge frequency of the filter in Hz (default 40)
+        notch : float | None
+            Frequency to notch filter in Hz (default None)
+        rank : None | 'info' | 'full'
+            Rank of the noise covariance. Can be estimated from the data (None) or read from the measurement info ('info').
+            If 'full', the rank is assumed to be full, i.e., equal to the number of good channels.
+        postfix : str | None
+            Save the noise covariance file using this postfix in the name. If None, uses the 'method' as postfix.
+        njobs : int
+            Number of jobs to run in parallel
+        overwrite : bool
+            Overwrite if already run (default False)
+        """
                 
         if not postfix:
             postfix = method
         if erm:
             fname_cov = os.path.join(self.path_local, '%s_erm_%s-cov.fif' % (self.sub, postfix))
         else:
-            fname_cov = os.path.join(self.path_local, '%s_speech_%s-cov.fif' % (self.sub, postfix))
+            fname_cov = os.path.join(self.path_local, '%s_prestim_%s-cov.fif' % (self.sub, postfix))
             
         if not overwrite and os.path.exists(fname_cov):
             print('Noise covariance file already computed. No need to rerun.')
             self.ncov = mne.read_cov(fname_cov)
         else:
             if erm: # use empty room data
+                self.erm_names = [name for name in os.listdir(self.path_local) if 'erm' in name]
+                print('Using the following empty room files:\n %s' % self.erm_names)
                 raw_erm = [mne.io.read_raw_fif(os.path.join(self.path_local, 
-                             os.path.splitext(raw_name)[0].replace('speech','erm') + 
-                             '_tsss.fif')) for raw_name in self.raw_names]    
+                            erm_name)) for erm_name in self.erm_names]   
                 raw_erm = mne.concatenate_raws(raw_erm)
                 
                 if fmin or fmax:
@@ -660,19 +693,34 @@ class MNEprepro():
         
             
 
-    def make_inv_operator(self, postfix='', overwrite=False):
-
-        if not postfix:
-            postfix = 'speech'
-        fname_inv = os.path.join(self.path_local, '%s_%s-inv.fif' % (self.sub, postfix))
+    def make_inv_operator(self, loose=0.2, depth=0.8, postfix=None, overwrite=False):
+        """
+        Assembles inverse operator. Gets the forward solution and noise covariance matrix from the self-instance.  
+               
+        Parameters
+        ----------
+        loose : float
+            Orientation constraint. Weights the source variances of the dipole components that are parallel (tangential) 
+            to the cortical surface. Must be between 0 and 1 (inclusive). If 0, the solution is computed with fixed orientation, 
+            if 1, corresponds to free orientations (default 0.2).
+        depth : float
+            Depth weighting of the forward solution using a depth prior. Must be between 0 and 1. Acts as the depth weighting 
+            exponent (exp). If 0, no depth weighting is performed (default 0.8).
+        postfix : str | None
+            Save the inverse operator using this postfix in the name (i.e., subID_'postfix'-inv.fif)
+        overwrite : bool
+            Overwrite if already run (default False)
+        """
+        
+        fname_inv = os.path.join(self.path_local, '%s-inv.fif' % self.sub)
+        if postfix:
+            fname_inv = '%s_%s-inv.fif' % (fname_inv.split('-')[0], postfix)
         if not overwrite and os.path.exists(fname_inv):
             print('Inverse operator already exists. No need to rerun.')
             self.inv = mne.minimum_norm.read_inverse_operator(fname_inv)
         else:
-            self.inv = mne.minimum_norm.make_inverse_operator(self.epochs.info, 
-                                                              self.fwd, self.ncov, 
-                                                              loose=0.2, depth=0.8,
-                                                              rank='info')
+            self.inv = mne.minimum_norm.make_inverse_operator(self.epochs.info, self.fwd, self.ncov, 
+                                                              loose=loose, depth=depth, rank='info')
             mne.minimum_norm.write_inverse_operator(fname_inv, self.inv)
 
 
